@@ -1,5 +1,4 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
-import { Web3Provider } from "@/components/Web3Provider";
 
 import appCss from "../styles.css?url";
 
@@ -30,14 +29,18 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "memco" },
+      { name: "description", content: "Meme Weaver AI transforms your web3 activity into personalized, animated meme-style recaps." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "memco" },
+      { property: "og:description", content: "Meme Weaver AI transforms your web3 activity into personalized, animated meme-style recaps." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "memco" },
+      { name: "twitter:description", content: "Meme Weaver AI transforms your web3 activity into personalized, animated meme-style recaps." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/2cb0a1f7-8e50-421c-806a-d836f2a6c93f/id-preview-f3acb9cc--445ebe1e-d5d0-43b8-b241-93e50df04d01.lovable.app-1776518674867.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/2cb0a1f7-8e50-421c-806a-d836f2a6c93f/id-preview-f3acb9cc--445ebe1e-d5d0-43b8-b241-93e50df04d01.lovable.app-1776518674867.png" },
     ],
     links: [
       {
@@ -66,9 +69,5 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  return (
-    <Web3Provider>
-      <Outlet />
-    </Web3Provider>
-  );
+  return <Outlet />;
 }
