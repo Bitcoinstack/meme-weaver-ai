@@ -14,7 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      comics: {
+        Row: {
+          created_at: string
+          degen_score: number
+          id: string
+          panels: Json
+          stats: Json
+          verdict: string | null
+          vibe: string
+          wallet_address: string
+        }
+        Insert: {
+          created_at?: string
+          degen_score?: number
+          id?: string
+          panels?: Json
+          stats?: Json
+          verdict?: string | null
+          vibe?: string
+          wallet_address: string
+        }
+        Update: {
+          created_at?: string
+          degen_score?: number
+          id?: string
+          panels?: Json
+          stats?: Json
+          verdict?: string | null
+          vibe?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
