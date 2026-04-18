@@ -14,10 +14,10 @@ export const Route = createFileRoute("/")({
       { title: "Memco — Your Onchain Life, Roasted by AI" },
       {
         name: "description",
-        content: "Memco scans your BNB wallet and turns your trades into a 6-panel AI meme comic. Degen score included.",
+        content: "Memco scans your EVM wallet (ETH, Polygon, Arbitrum) and turns your trades into an AI meme comic. Degen score included.",
       },
       { property: "og:title", content: "Memco — Your Onchain Life, Roasted by AI" },
-      { property: "og:description", content: "Connect your BNB wallet and let AI roast your trading history into a meme comic." },
+      { property: "og:description", content: "Connect your wallet and let AI roast your onchain history into a meme comic." },
       { property: "og:type", content: "website" },
     ],
   }),

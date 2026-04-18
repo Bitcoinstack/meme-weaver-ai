@@ -1,15 +1,19 @@
 const ITEMS = [
   {
     q: "Is this safe? Does it touch my funds?",
-    a: "No. Memco only reads your public wallet address from BscScan. No transactions, no signatures, no approvals. Ever.",
+    a: "No. Memco only reads your public wallet address from public block explorers. No transactions, no signatures, no approvals. Ever.",
   },
   {
     q: "What chains do you support?",
-    a: "BNB Chain only for the hackathon. Multi-chain coming next.",
+    a: "Ethereum, Polygon and Arbitrum at launch. More chains coming as we scale.",
   },
   {
     q: "What does the AI actually look at?",
-    a: "Public swap history, biggest wins, worst losses, token diversity, wallet age, and how often you trade at 3am. The good stuff.",
+    a: "Public swap history, biggest wins, worst losses, NFT mints, contracts you've touched, wallet age, and how often you trade at 3am. The good stuff.",
+  },
+  {
+    q: "Do all panels use the same character?",
+    a: "Nope. The AI picks a different character for every panel — penguin, frog, ghost, robot, samurai — based on what fits your story.",
   },
   {
     q: "Can I share my comic?",
