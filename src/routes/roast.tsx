@@ -96,6 +96,7 @@ function RoastPage() {
   const [comic, setComic] = useState<ComicResult | null>(null);
   const [quipIdx, setQuipIdx] = useState(0);
   const comicRef = useRef<HTMLDivElement>(null);
+  const reelRef = useRef<HTMLDivElement>(null);
   const lastScanKey = useRef<string | null>(null);
 
   const runScan = (addr: string, cId: number) => {
