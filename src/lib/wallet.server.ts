@@ -14,10 +14,21 @@ export const SUPPORTED_CHAINS = {
 
 export type ChainId = keyof typeof SUPPORTED_CHAINS;
 
+export type RecentTx = {
+  hash: string;
+  date: string; // ISO date YYYY-MM-DD
+  time: string; // HH:MM UTC
+  type: "send" | "receive" | "contract" | "swap" | "mint" | "failed";
+  counterparty: string; // truncated 0x..
+  token: string | null; // symbol if token tx
+  valueLabel: string; // human label e.g. "0.42 ETH" or "USDC" or "NFT"
+};
+
 export type WalletStats = {
   address: string;
   chainId: number;
   chainName: string;
+  explorerBase: string; // e.g. https://etherscan.io
   totalTxs: number;
   walletAgeDays: number;
   uniqueTokens: number;
@@ -33,6 +44,7 @@ export type WalletStats = {
   weekendRatio: number;
   degenScore: number; // 0..100
   vibeHints: string[]; // human-readable signals to feed the AI
+  recentTxs: RecentTx[]; // last 25 most recent txs
 };
 
 type EvmTx = {
