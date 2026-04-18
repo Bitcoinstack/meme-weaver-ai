@@ -14,10 +14,21 @@ export const SUPPORTED_CHAINS = {
 
 export type ChainId = keyof typeof SUPPORTED_CHAINS;
 
+export type RecentTx = {
+  hash: string;
+  date: string; // ISO date YYYY-MM-DD
+  time: string; // HH:MM UTC
+  type: "send" | "receive" | "contract" | "swap" | "mint" | "failed";
+  counterparty: string; // truncated 0x..
+  token: string | null; // symbol if token tx
+  valueLabel: string; // human label e.g. "0.42 ETH" or "USDC" or "NFT"
+};
+
 export type WalletStats = {
   address: string;
   chainId: number;
   chainName: string;
+  explorerBase: string; // e.g. https://etherscan.io
   totalTxs: number;
   walletAgeDays: number;
   uniqueTokens: number;
@@ -33,6 +44,7 @@ export type WalletStats = {
   weekendRatio: number;
   degenScore: number; // 0..100
   vibeHints: string[]; // human-readable signals to feed the AI
+  recentTxs: RecentTx[]; // last 25 most recent txs
 };
 
 type EvmTx = {
@@ -189,10 +201,77 @@ export async function analyzeWallet(
   if (walletAgeDays > 1500) hints.push("OG since 2021 or earlier");
   if (weekendRatio > 0.4) hints.push("weekend warrior trader");
 
+  // Build recent tx feed (last 25, newest first). Combine native + token + nft.
+  const trunc = (a: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—");
+  type FeedItem = RecentTx & { ts: number };
+  const feed: FeedItem[] = [];
+
+  for (const t of txArr) {
+    const ts = Number(t.timeStamp) * 1000;
+    const d = new Date(ts);
+    const isContract = t.input && t.input !== "0x";
+    let type: RecentTx["type"];
+    if (t.isError === "1") type = "failed";
+    else if (isContract) type = "contract";
+    else if (t.from?.toLowerCase() === lower) type = "send";
+    else type = "receive";
+    const eth = Number(t.value) / 1e18;
+    feed.push({
+      ts,
+      hash: t.hash,
+      date: d.toISOString().slice(0, 10),
+      time: d.toISOString().slice(11, 16),
+      type,
+      counterparty: trunc(t.from?.toLowerCase() === lower ? t.to : t.from),
+      token: null,
+      valueLabel: eth > 0 ? `${eth.toFixed(eth < 0.01 ? 5 : 4)} ${chainMeta.symbol}` : "—",
+    });
+  }
+  for (const t of tokArr) {
+    const ts = Number(t.timeStamp) * 1000;
+    const d = new Date(ts);
+    feed.push({
+      ts,
+      hash: t.hash,
+      date: d.toISOString().slice(0, 10),
+      time: d.toISOString().slice(11, 16),
+      type: "swap",
+      counterparty: trunc(t.from?.toLowerCase() === lower ? t.to : t.from),
+      token: (t.tokenSymbol || "TOKEN").slice(0, 12),
+      valueLabel: `$${(t.tokenSymbol || "TOKEN").slice(0, 12)}`,
+    });
+  }
+  for (const t of nftArr) {
+    const ts = Number(t.timeStamp) * 1000;
+    const d = new Date(ts);
+    const isMint = t.from === "0x0000000000000000000000000000000000000000";
+    feed.push({
+      ts,
+      hash: t.hash,
+      date: d.toISOString().slice(0, 10),
+      time: d.toISOString().slice(11, 16),
+      type: isMint ? "mint" : "swap",
+      counterparty: trunc(isMint ? "mint" : t.from?.toLowerCase() === lower ? t.to : t.from),
+      token: (t.tokenSymbol || "NFT").slice(0, 12),
+      valueLabel: `NFT ${(t.tokenSymbol || "").slice(0, 8)}`.trim(),
+    });
+  }
+  const seen = new Set<string>();
+  const recentTxs: RecentTx[] = feed
+    .sort((a, b) => b.ts - a.ts)
+    .filter((f) => {
+      if (seen.has(f.hash)) return false;
+      seen.add(f.hash);
+      return true;
+    })
+    .slice(0, 25)
+    .map(({ ts: _ts, ...rest }) => rest);
+
   return {
     address,
     chainId,
     chainName: chainMeta.name,
+    explorerBase: `https://${chainMeta.explorer}`,
     totalTxs,
     walletAgeDays,
     uniqueTokens,
@@ -208,6 +287,7 @@ export async function analyzeWallet(
     weekendRatio: Math.round(weekendRatio * 100) / 100,
     degenScore,
     vibeHints: hints,
+    recentTxs,
   };
 }
 
