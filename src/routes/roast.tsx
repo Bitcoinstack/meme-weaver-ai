@@ -31,12 +31,24 @@ type Panel = {
   imageUrl: string;
 };
 
+type RecentTx = {
+  hash: string;
+  date: string;
+  time: string;
+  type: "send" | "receive" | "contract" | "swap" | "mint" | "failed";
+  counterparty: string;
+  token: string | null;
+  valueLabel: string;
+};
+
 type ComicResult = {
   comicId: string | null;
   vibe: string;
   verdict: string;
   degenScore: number;
   panels: Panel[];
+  recentTxs: RecentTx[];
+  explorerBase: string;
   stats: {
     totalTxs: number;
     walletAgeDays: number;
@@ -46,6 +58,15 @@ type ComicResult = {
     contractsInteracted: number;
     totalNftMints: number;
   };
+};
+
+const TX_TYPE_STYLE: Record<RecentTx["type"], { bg: string; label: string }> = {
+  send: { bg: "bg-roast text-cream", label: "SEND" },
+  receive: { bg: "bg-primary text-ink", label: "RECV" },
+  contract: { bg: "bg-secondary text-ink", label: "CALL" },
+  swap: { bg: "bg-primary text-ink", label: "SWAP" },
+  mint: { bg: "bg-roast text-cream", label: "MINT" },
+  failed: { bg: "bg-ink text-cream", label: "FAIL" },
 };
 
 const SCAN_QUIPS = [
