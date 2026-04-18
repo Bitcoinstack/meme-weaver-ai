@@ -155,6 +155,23 @@ function RoastPage() {
     }
   };
 
+  const handleDownloadReel = async () => {
+    if (!reelRef.current) return;
+    try {
+      const dataUrl = await toPng(reelRef.current, {
+        cacheBust: true,
+        pixelRatio: 2,
+        backgroundColor: "#fdfbf4",
+      });
+      const link = document.createElement("a");
+      link.download = `memco-reel-${address?.slice(0, 6)}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleShare = () => {
     const text = `My ${comic?.stats.chainName} wallet just got roasted by Memco 🐧🔥\n\nDegen Score: ${comic?.degenScore}/100\nVerdict: "${comic?.verdict}"\n\nGet yours:`;
     const url = typeof window !== "undefined" ? window.location.origin : "";
