@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { useAccount, useDisconnect } from "wagmi";
+import { useState } from "react";
 import penguin from "@/assets/penguin-hero.png";
+import { WalletPicker } from "@/components/WalletPicker";
 
 function shorten(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
@@ -8,13 +10,10 @@ function shorten(addr: string) {
 
 export function Navbar() {
   const { address, isConnected } = useAccount();
-  const { connectors, connect, isPending } = useConnect();
   const { disconnect } = useDisconnect();
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  const handleConnect = () => {
-    const injected = connectors.find((c) => c.id === "injected") || connectors[0];
-    if (injected) connect({ connector: injected });
-  };
+  const handleConnect = () => setPickerOpen(true);
 
   return (
     <header className="sticky top-0 z-50 border-b-4 border-ink bg-cream/90 backdrop-blur-sm">
@@ -47,13 +46,13 @@ export function Navbar() {
         ) : (
           <button
             onClick={handleConnect}
-            disabled={isPending}
-            className="border-4 border-ink bg-primary px-4 py-2 font-display text-base md:text-lg text-ink shadow-pop-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all disabled:opacity-60"
+            className="border-4 border-ink bg-primary px-4 py-2 font-display text-base md:text-lg text-ink shadow-pop-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
           >
-            {isPending ? "CONNECTING…" : "CONNECT WALLET"}
+            CONNECT WALLET
           </button>
         )}
       </div>
+      <WalletPicker open={pickerOpen} onClose={() => setPickerOpen(false)} />
     </header>
   );
 }

@@ -4,10 +4,10 @@
 const ETHERSCAN_V2 = "https://api.etherscan.io/v2/api";
 const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
-// Free-tier supported chains on Etherscan v2 unified API.
-// (BSC and Base require paid plan and were removed.)
+// Etherscan v2 unified API — one key works across all chains, free tier.
 export const SUPPORTED_CHAINS = {
   1: { name: "Ethereum", symbol: "ETH", explorer: "etherscan.io" },
+  56: { name: "BNB Chain", symbol: "BNB", explorer: "bscscan.com" },
   137: { name: "Polygon", symbol: "MATIC", explorer: "polygonscan.com" },
   42161: { name: "Arbitrum", symbol: "ETH", explorer: "arbiscan.io" },
 } as const;
