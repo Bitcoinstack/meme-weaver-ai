@@ -7,6 +7,7 @@ import {
   SUPPORTED_CHAINS,
 } from "./wallet.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { Json } from "@/integrations/supabase/types";
 
 const inputSchema = z.object({
   address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, "Invalid wallet address"),
@@ -63,8 +64,8 @@ export const roastWallet = createServerFn({ method: "POST" })
             vibe: narration.vibe,
             degen_score: stats.degenScore,
             verdict: narration.verdict,
-            panels: panels as unknown as Record<string, unknown>[],
-            stats: stats as unknown as Record<string, unknown>,
+            panels: panels as unknown as Json,
+            stats: stats as unknown as Json,
           },
         ])
         .select("id")
