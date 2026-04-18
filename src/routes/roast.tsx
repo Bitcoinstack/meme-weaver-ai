@@ -162,13 +162,12 @@ function RoastPage() {
               </p>
               <button
                 onClick={handleConnect}
-                disabled={isPending}
-                className="border-4 border-ink bg-primary px-8 py-4 font-display text-2xl text-ink shadow-pop hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-none transition-all disabled:opacity-60"
+                className="border-4 border-ink bg-primary px-8 py-4 font-display text-2xl text-ink shadow-pop hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-none transition-all"
               >
-                {isPending ? "OPENING WALLET…" : "CONNECT WALLET 🔌"}
+                CONNECT WALLET 🔌
               </button>
               <p className="mt-4 font-sans text-sm text-ink/60">
-                Requires MetaMask, Rabby or any injected wallet
+                MetaMask, Coinbase, Rabby and other browser wallets supported
               </p>
               <div className="mt-6">
                 <Link to="/" className="font-sans font-semibold text-ink underline underline-offset-4 hover:text-roast">
