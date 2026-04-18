@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
-import { useAccount, useConnect } from "wagmi";
+import { WalletPicker } from "@/components/WalletPicker";
+import { useAccount } from "wagmi";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toPng } from "html-to-image";
@@ -60,13 +61,14 @@ const SCAN_QUIPS = [
 
 const CHAINS = [
   { id: 1, label: "Ethereum", short: "ETH" },
+  { id: 56, label: "BNB Chain", short: "BNB" },
   { id: 137, label: "Polygon", short: "POLY" },
   { id: 42161, label: "Arbitrum", short: "ARB" },
 ];
 
 function RoastPage() {
   const { address, isConnected } = useAccount();
-  const { connectors, connect, isPending } = useConnect();
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [chainId, setChainId] = useState(1);
   const [status, setStatus] = useState<"idle" | "scanning" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -112,10 +114,7 @@ function RoastPage() {
     return () => clearInterval(id);
   }, [status]);
 
-  const handleConnect = () => {
-    const c = connectors.find((x) => x.id === "injected") || connectors[0];
-    if (c) connect({ connector: c });
-  };
+  const handleConnect = () => setPickerOpen(true);
 
   const handleDownload = async () => {
     if (!comicRef.current) return;
