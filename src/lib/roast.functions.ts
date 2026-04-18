@@ -57,14 +57,16 @@ export const roastWallet = createServerFn({ method: "POST" })
     try {
       const { data: row } = await supabaseAdmin
         .from("comics")
-        .insert({
-          wallet_address: address,
-          vibe: narration.vibe,
-          degen_score: stats.degenScore,
-          verdict: narration.verdict,
-          panels,
-          stats: stats as unknown as Record<string, unknown>,
-        })
+        .insert([
+          {
+            wallet_address: address,
+            vibe: narration.vibe,
+            degen_score: stats.degenScore,
+            verdict: narration.verdict,
+            panels: panels as unknown as Record<string, unknown>[],
+            stats: stats as unknown as Record<string, unknown>,
+          },
+        ])
         .select("id")
         .single();
       comicId = row?.id ?? null;
