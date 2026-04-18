@@ -325,6 +325,7 @@ function RoastPage() {
         </div>
       </main>
       <Footer />
+      <WalletPicker open={pickerOpen} onClose={() => setPickerOpen(false)} />
     </div>
   );
 }
