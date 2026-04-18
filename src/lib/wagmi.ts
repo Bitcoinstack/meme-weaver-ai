@@ -1,28 +1,17 @@
 import { http, createConfig } from "wagmi";
-import { bsc } from "wagmi/chains";
-import { injected, walletConnect } from "wagmi/connectors";
+import { mainnet, polygon, arbitrum, bsc } from "wagmi/chains";
+import { injected } from "wagmi/connectors";
 
-const projectId =
-  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ||
-  // fallback so dev doesn't crash; real value injected via env
-  "demo";
-
+// Use injected (MetaMask, Rabby, etc.) — works without any project ID.
+// WalletConnect dropped: it requires a 32-char public Project ID exposed to
+// the browser, which we can't get through to the client cleanly here.
 export const wagmiConfig = createConfig({
-  chains: [bsc],
-  connectors: [
-    injected({ shimDisconnect: true }),
-    walletConnect({
-      projectId,
-      metadata: {
-        name: "Memco",
-        description: "Your onchain life, roasted by AI",
-        url: "https://memco.app",
-        icons: [],
-      },
-      showQrModal: true,
-    }),
-  ],
+  chains: [mainnet, polygon, arbitrum, bsc],
+  connectors: [injected({ shimDisconnect: true })],
   transports: {
+    [mainnet.id]: http(),
+    [polygon.id]: http(),
+    [arbitrum.id]: http(),
     [bsc.id]: http(),
   },
   ssr: true,

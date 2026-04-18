@@ -16,7 +16,7 @@ export function Hero() {
           transition={{ duration: 0.6 }}
         >
           <span className="inline-block border-4 border-ink bg-cream px-3 py-1 font-display text-sm md:text-base text-ink mb-6 shadow-pop-sm -rotate-2">
-            ⚡ AI-POWERED · BNB CHAIN
+            ⚡ AI-POWERED · ETH · POLYGON · ARBITRUM
           </span>
           <h1 className="font-display text-5xl md:text-7xl lg:text-8xl text-ink leading-[0.95] tracking-tight">
             YOUR ONCHAIN<br />
@@ -24,7 +24,7 @@ export function Hero() {
             <span className="text-roast">ROASTED.</span>
           </h1>
           <p className="mt-6 max-w-md font-sans text-lg md:text-xl text-ink/80 font-medium">
-            Memco scans your BNB wallet and turns your trades, rugs and big wins into a 6-panel meme comic. AI-narrated. Brutally honest.
+            Memco scans your wallet and turns your trades, rugs and big wins into a meme comic. AI-narrated. Custom characters per panel. Brutally honest.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-4">
             <Link
@@ -63,7 +63,7 @@ export function Hero() {
           <div className="animate-float-bob">
             <img
               src={penguin}
-              alt="Memco penguin mascot holding a BNB coin"
+              alt="Memco mascot holding a coin"
               className="w-72 md:w-96 lg:w-[480px] drop-shadow-[8px_8px_0_rgba(0,0,0,0.9)]"
               width={480}
               height={480}

@@ -4,59 +4,70 @@ import {
   analyzeWallet,
   generateNarration,
   generatePanelImage,
+  SUPPORTED_CHAINS,
 } from "./wallet.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { Json } from "@/integrations/supabase/types";
 
-const addressSchema = z.object({
-  address: z
-    .string()
-    .regex(/^0x[a-fA-F0-9]{40}$/, "Invalid wallet address"),
+const inputSchema = z.object({
+  address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, "Invalid wallet address"),
+  chainId: z
+    .number()
+    .int()
+    .refine((c) => c in SUPPORTED_CHAINS, "Unsupported chain")
+    .optional()
+    .default(1),
 });
 
 export const roastWallet = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => addressSchema.parse(input))
+  .inputValidator((input: unknown) => inputSchema.parse(input))
   .handler(async ({ data }) => {
     const address = data.address.toLowerCase();
+    const chainId = data.chainId;
 
-    // 1. Analyze on-chain data
-    const stats = await analyzeWallet(address);
+    const stats = await analyzeWallet(address, chainId);
 
     if (stats.totalTxs === 0) {
       return {
         ok: false as const,
-        error:
-          "This wallet has zero BNB Chain activity. Connect a wallet that's actually been onchain.",
+        error: `This wallet has zero ${stats.chainName} activity. Try another chain or a wallet that's been onchain.`,
       };
     }
 
-    // 2. Generate narration via Gemini
     const narration = await generateNarration(stats);
 
-    // 3. Generate 6 panel images in parallel
+    // Generate panel images in parallel
     const panelImages = await Promise.all(
-      narration.panels.map((p) => generatePanelImage(p.imagePrompt)),
+      narration.panels.map((p) =>
+        generatePanelImage(p.imagePrompt).catch((e) => {
+          console.error("Panel image failed:", e);
+          return ""; // empty fallback so the rest still renders
+        }),
+      ),
     );
 
     const panels = narration.panels.map((p, i) => ({
       title: p.title,
       caption: p.caption,
+      character: p.character,
       sticker: p.sticker ?? null,
       imageUrl: panelImages[i],
     }));
 
-    // 4. Persist (best-effort — don't block on failure)
     let comicId: string | null = null;
     try {
       const { data: row } = await supabaseAdmin
         .from("comics")
-        .insert({
-          wallet_address: address,
-          vibe: narration.vibe,
-          degen_score: stats.degenScore,
-          verdict: narration.verdict,
-          panels,
-          stats,
-        })
+        .insert([
+          {
+            wallet_address: address,
+            vibe: narration.vibe,
+            degen_score: stats.degenScore,
+            verdict: narration.verdict,
+            panels: panels as unknown as Json,
+            stats: stats as unknown as Json,
+          },
+        ])
         .select("id")
         .single();
       comicId = row?.id ?? null;

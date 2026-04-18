@@ -1,33 +1,52 @@
 // Server-only helpers for wallet analysis + AI comic generation.
 // Never import this from client code.
 
-const BSCSCAN_BASE = "https://api.bscscan.com/api";
+const ETHERSCAN_V2 = "https://api.etherscan.io/v2/api";
 const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+
+// Free-tier supported chains on Etherscan v2 unified API.
+// (BSC and Base require paid plan and were removed.)
+export const SUPPORTED_CHAINS = {
+  1: { name: "Ethereum", symbol: "ETH", explorer: "etherscan.io" },
+  137: { name: "Polygon", symbol: "MATIC", explorer: "polygonscan.com" },
+  42161: { name: "Arbitrum", symbol: "ETH", explorer: "arbiscan.io" },
+} as const;
+
+export type ChainId = keyof typeof SUPPORTED_CHAINS;
 
 export type WalletStats = {
   address: string;
+  chainId: number;
+  chainName: string;
   totalTxs: number;
   walletAgeDays: number;
   uniqueTokens: number;
   topTokens: string[];
   biggestSwapToken: string | null;
   totalSwaps: number;
+  totalNftMints: number;
+  contractsInteracted: number;
+  failedTxRatio: number;
   firstTxDate: string | null;
   lastTxDate: string | null;
   nightTradeRatio: number; // 0..1 fraction of txs between 0-5 UTC
+  weekendRatio: number;
   degenScore: number; // 0..100
+  vibeHints: string[]; // human-readable signals to feed the AI
 };
 
-type BscTx = {
+type EvmTx = {
   timeStamp: string;
   hash: string;
   from: string;
   to: string;
   value: string;
   isError: string;
+  contractAddress?: string;
+  input?: string;
 };
 
-type BscTokenTx = {
+type TokenTx = {
   timeStamp: string;
   hash: string;
   from: string;
@@ -38,25 +57,36 @@ type BscTokenTx = {
   contractAddress: string;
 };
 
-async function bscFetch<T>(params: Record<string, string>): Promise<T> {
-  const apiKey = process.env.BSCSCAN_API_KEY;
-  if (!apiKey) throw new Error("BSCSCAN_API_KEY not configured");
-  const qs = new URLSearchParams({ ...params, apikey: apiKey }).toString();
-  const res = await fetch(`${BSCSCAN_BASE}?${qs}`);
-  if (!res.ok) throw new Error(`BscScan ${res.status}`);
+async function explorerFetch<T>(
+  chainId: number,
+  params: Record<string, string>,
+): Promise<T> {
+  const apiKey = process.env.BSCSCAN_API_KEY; // works as Etherscan v2 unified key
+  if (!apiKey) throw new Error("Explorer API key not configured");
+  const qs = new URLSearchParams({
+    chainid: String(chainId),
+    ...params,
+    apikey: apiKey,
+  }).toString();
+  const res = await fetch(`${ETHERSCAN_V2}?${qs}`);
+  if (!res.ok) throw new Error(`Explorer ${res.status}`);
   const json = (await res.json()) as { status: string; message: string; result: T };
-  // BscScan returns "0" for "no txns" — that's not an error
   if (json.status !== "1" && !Array.isArray(json.result)) {
     return [] as unknown as T;
   }
   return json.result;
 }
 
-export async function analyzeWallet(address: string): Promise<WalletStats> {
+export async function analyzeWallet(
+  address: string,
+  chainId: number,
+): Promise<WalletStats> {
   const lower = address.toLowerCase();
+  const chainMeta = SUPPORTED_CHAINS[chainId as ChainId];
+  if (!chainMeta) throw new Error(`Unsupported chain ${chainId}`);
 
-  const [txs, tokenTxs] = await Promise.all([
-    bscFetch<BscTx[]>({
+  const [txs, tokenTxs, nftTxs] = await Promise.all([
+    explorerFetch<EvmTx[]>(chainId, {
       module: "account",
       action: "txlist",
       address: lower,
@@ -66,7 +96,7 @@ export async function analyzeWallet(address: string): Promise<WalletStats> {
       offset: "1000",
       sort: "asc",
     }),
-    bscFetch<BscTokenTx[]>({
+    explorerFetch<TokenTx[]>(chainId, {
       module: "account",
       action: "tokentx",
       address: lower,
@@ -76,22 +106,35 @@ export async function analyzeWallet(address: string): Promise<WalletStats> {
       offset: "1000",
       sort: "asc",
     }),
+    explorerFetch<TokenTx[]>(chainId, {
+      module: "account",
+      action: "tokennfttx",
+      address: lower,
+      startblock: "0",
+      endblock: "99999999",
+      page: "1",
+      offset: "200",
+      sort: "asc",
+    }),
   ]);
 
   const txArr = Array.isArray(txs) ? txs : [];
   const tokArr = Array.isArray(tokenTxs) ? tokenTxs : [];
+  const nftArr = Array.isArray(nftTxs) ? nftTxs : [];
 
   const totalTxs = txArr.length;
   const firstTs = txArr[0] ? Number(txArr[0].timeStamp) * 1000 : null;
   const lastTs = txArr[txArr.length - 1]
     ? Number(txArr[txArr.length - 1].timeStamp) * 1000
     : null;
-  const walletAgeDays = firstTs ? Math.max(1, Math.floor((Date.now() - firstTs) / 86_400_000)) : 0;
+  const walletAgeDays = firstTs
+    ? Math.max(1, Math.floor((Date.now() - firstTs) / 86_400_000))
+    : 0;
 
   // Token stats
   const tokenCounts = new Map<string, number>();
   for (const t of tokArr) {
-    const sym = t.tokenSymbol || "UNKNOWN";
+    const sym = (t.tokenSymbol || "UNKNOWN").slice(0, 12);
     tokenCounts.set(sym, (tokenCounts.get(sym) || 0) + 1);
   }
   const sortedTokens = [...tokenCounts.entries()].sort((a, b) => b[1] - a[1]);
@@ -100,45 +143,86 @@ export async function analyzeWallet(address: string): Promise<WalletStats> {
   const biggestSwapToken = sortedTokens[0]?.[0] ?? null;
   const totalSwaps = tokArr.length;
 
-  // Night degen ratio
-  let nightTrades = 0;
-  for (const t of txArr) {
-    const h = new Date(Number(t.timeStamp) * 1000).getUTCHours();
-    if (h >= 0 && h < 5) nightTrades++;
-  }
-  const nightTradeRatio = totalTxs > 0 ? nightTrades / totalTxs : 0;
+  // NFT mints (received from 0x0)
+  const totalNftMints = nftArr.filter(
+    (n) => n.from === "0x0000000000000000000000000000000000000000",
+  ).length;
 
-  // Degen score: weighted mix of activity, diversity, night trading
-  const activityScore = Math.min(40, Math.log10(totalTxs + 1) * 12);
-  const diversityScore = Math.min(30, uniqueTokens * 1.5);
-  const nightScore = nightTradeRatio * 30;
-  const degenScore = Math.round(Math.min(100, activityScore + diversityScore + nightScore));
+  // Contracts interacted with (unique `to` addresses for txs with input data)
+  const contractSet = new Set<string>();
+  let failed = 0;
+  let nightTrades = 0;
+  let weekendTrades = 0;
+  for (const t of txArr) {
+    if (t.input && t.input !== "0x" && t.to) contractSet.add(t.to.toLowerCase());
+    if (t.isError === "1") failed++;
+    const d = new Date(Number(t.timeStamp) * 1000);
+    const h = d.getUTCHours();
+    if (h >= 0 && h < 5) nightTrades++;
+    const dow = d.getUTCDay();
+    if (dow === 0 || dow === 6) weekendTrades++;
+  }
+  const failedTxRatio = totalTxs > 0 ? failed / totalTxs : 0;
+  const nightTradeRatio = totalTxs > 0 ? nightTrades / totalTxs : 0;
+  const weekendRatio = totalTxs > 0 ? weekendTrades / totalTxs : 0;
+  const contractsInteracted = contractSet.size;
+
+  // Degen score (0-100): activity + diversity + chaos signals
+  const activityScore = Math.min(35, Math.log10(totalTxs + 1) * 10);
+  const diversityScore = Math.min(25, uniqueTokens * 1.2);
+  const nightScore = nightTradeRatio * 20;
+  const failScore = failedTxRatio * 10;
+  const nftScore = Math.min(10, totalNftMints * 0.5);
+  const degenScore = Math.round(
+    Math.min(100, activityScore + diversityScore + nightScore + failScore + nftScore),
+  );
+
+  // Build vibe hints for the AI
+  const hints: string[] = [];
+  if (totalTxs < 10) hints.push("brand new wallet, baby onchain energy");
+  else if (totalTxs > 500) hints.push("seasoned veteran, lots of history");
+  if (nightTradeRatio > 0.25) hints.push("trades at 3am — nocturnal degen");
+  if (failedTxRatio > 0.1) hints.push("many failed txs — gas-fee speedrunner");
+  if (totalNftMints > 10) hints.push("NFT minter, JPEG enjoyer");
+  if (uniqueTokens > 30) hints.push("collects shitcoins like trading cards");
+  if (uniqueTokens < 5 && totalSwaps > 20) hints.push("loyalist, holds the same bags forever");
+  if (walletAgeDays > 1500) hints.push("OG since 2021 or earlier");
+  if (weekendRatio > 0.4) hints.push("weekend warrior trader");
 
   return {
     address,
+    chainId,
+    chainName: chainMeta.name,
     totalTxs,
     walletAgeDays,
     uniqueTokens,
     topTokens,
     biggestSwapToken,
     totalSwaps,
+    totalNftMints,
+    contractsInteracted,
+    failedTxRatio: Math.round(failedTxRatio * 100) / 100,
     firstTxDate: firstTs ? new Date(firstTs).toISOString().slice(0, 10) : null,
     lastTxDate: lastTs ? new Date(lastTs).toISOString().slice(0, 10) : null,
-    nightTradeRatio,
+    nightTradeRatio: Math.round(nightTradeRatio * 100) / 100,
+    weekendRatio: Math.round(weekendRatio * 100) / 100,
     degenScore,
+    vibeHints: hints,
   };
 }
 
 type NarrationPanel = {
   title: string;
   caption: string;
+  character: string; // describes the character for THIS panel
   imagePrompt: string;
   sticker?: string;
 };
 
 type Narration = {
-  vibe: "roast" | "wholesome" | "degen";
+  vibe: "roast" | "wholesome" | "degen" | "mixed";
   verdict: string;
+  panelCount: number;
   panels: NarrationPanel[];
 };
 
@@ -146,27 +230,33 @@ export async function generateNarration(stats: WalletStats): Promise<Narration> 
   const apiKey = process.env.LOVABLE_API_KEY;
   if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
 
-  const sys = `You are Memco, a brutally funny AI that turns BNB Chain wallet history into a 6-panel meme comic.
-You auto-pick the tone based on the data:
-- If degenScore > 70 OR nightTradeRatio > 0.3 → "degen" (chaotic, crypto slang, "ser", "ngmi", "wagmi")
-- If totalTxs < 20 → "wholesome" (gentle, encouraging, baby penguin energy)
-- Else → "roast" (savage but playful, like a crypto twitter reply guy)
-Mix all three flavors when it fits. Be specific about tokens and numbers.
-Each panel needs a short title, a 1-sentence caption (max 18 words), and a vivid image prompt for an illustrator.
-Image prompts must include: "comic book style, thick black outlines, halftone shading, cute cartoon penguin character" so panels look consistent.
-Do NOT include token contract addresses. Use $SYMBOL format.
-Verdict = one savage closing line under 22 words.`;
+  const sys = `You are Memco, a brutally funny AI that turns ${stats.chainName} wallet history into a meme comic strip.
+
+TONE: auto-pick based on data:
+- degenScore > 70 OR nightTradeRatio > 0.3 → "degen" (chaotic crypto slang, "ser", "ngmi", "wagmi")
+- totalTxs < 20 → "wholesome" (gentle, encouraging, baby energy)
+- mid-range with mixed signals → "mixed" (alternates roast/wholesome/degen)
+- otherwise → "roast" (savage but playful, like a crypto twitter reply guy)
+Be specific about tokens and numbers from the data.
+
+PANEL COUNT: choose 4-8 panels based on richness of data:
+- < 30 txs → 4 panels (short story)
+- 30-200 txs → 5-6 panels
+- > 200 txs → 7-8 panels (rich history deserves more)
+
+CHARACTERS: each panel has a DIFFERENT character that fits the moment. Pick imaginatively from:
+cartoon penguin, frog (pepe-vibe), dog, cat, raccoon, robot, alien, ghost, monkey, bear, bull, chad-guy, wojak, anon-with-hoodie, viking, samurai, astronaut, clown, baby chick, rocket. Mix them up — different character per panel keeps it fresh.
+
+IMAGE PROMPT RULES: each prompt MUST start with "Comic book panel, thick black outlines, halftone shading, cel-shaded cartoon, cream background." Then describe the character + scene + emotion. Keep prompts under 60 words. Do NOT mention real token contract addresses. Use $SYMBOL format for tokens.
+
+STICKER: short emoji+word like "REKT 💀", "WAGMI 🚀", "GM ☀️", "PUMP 📈", "RUG 🪤", "BASED 🗿".
+
+VERDICT: one closing line under 22 words.`;
 
   const user = `Wallet stats:
 ${JSON.stringify(stats, null, 2)}
 
-Generate exactly 6 panels narrating this wallet's story:
-1. Origin — the wallet's first day onchain
-2. First taste — early trading
-3. The peak — most-held / biggest token moment
-4. The fumble — degen moment / night trading / chasing tokens
-5. The cope — current bag situation
-6. Verdict — final judgment with vibe-appropriate sticker
+Generate a meme comic narrating this wallet's onchain story. Each panel: title, 1-sentence caption (max 18 words), character description for that panel, imagePrompt for the artist, sticker.
 
 Return via the create_comic tool.`;
 
@@ -174,30 +264,35 @@ Return via the create_comic tool.`;
     type: "function",
     function: {
       name: "create_comic",
-      description: "Create the 6-panel meme comic.",
+      description: "Create a meme comic strip with 4-8 panels.",
       parameters: {
         type: "object",
         properties: {
-          vibe: { type: "string", enum: ["roast", "wholesome", "degen"] },
+          vibe: { type: "string", enum: ["roast", "wholesome", "degen", "mixed"] },
           verdict: { type: "string", description: "One closing line under 22 words." },
+          panelCount: { type: "integer", minimum: 4, maximum: 8 },
           panels: {
             type: "array",
-            minItems: 6,
-            maxItems: 6,
+            minItems: 4,
+            maxItems: 8,
             items: {
               type: "object",
               properties: {
                 title: { type: "string" },
                 caption: { type: "string" },
+                character: {
+                  type: "string",
+                  description: "Short description of the character in this panel, e.g. 'cartoon penguin in lab coat' or 'frog wojak crying'",
+                },
                 imagePrompt: { type: "string" },
-                sticker: { type: "string", description: "Short emoji+word like 'REKT 💀' or 'WAGMI 🚀'" },
+                sticker: { type: "string" },
               },
-              required: ["title", "caption", "imagePrompt"],
+              required: ["title", "caption", "character", "imagePrompt"],
               additionalProperties: false,
             },
           },
         },
-        required: ["vibe", "verdict", "panels"],
+        required: ["vibe", "verdict", "panelCount", "panels"],
         additionalProperties: false,
       },
     },
@@ -246,12 +341,7 @@ export async function generatePanelImage(prompt: string): Promise<string> {
     },
     body: JSON.stringify({
       model: "google/gemini-2.5-flash-image",
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
+      messages: [{ role: "user", content: prompt }],
       modalities: ["image", "text"],
     }),
   });
@@ -266,5 +356,5 @@ export async function generatePanelImage(prompt: string): Promise<string> {
   const images = data?.choices?.[0]?.message?.images;
   const url = images?.[0]?.image_url?.url;
   if (!url) throw new Error("No image returned");
-  return url; // data:image/png;base64,...
+  return url;
 }
