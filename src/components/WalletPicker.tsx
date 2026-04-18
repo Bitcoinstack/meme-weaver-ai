@@ -34,15 +34,13 @@ export function WalletPicker({ open, onClose }: Props) {
   // Hide the generic "Injected" fallback (it duplicates a real EIP-6963 wallet)
   // and dedupe by display label (EIP-6963 sometimes surfaces MetaMask twice).
   const seen = new Set<string>();
-  const list = connectors
-    .filter((c) => c.id !== "injected" && c.type !== "injected" || c.name)
-    .filter((c) => {
-      const key = labelFor(c).toLowerCase();
-      if (key === "injected" || key === "browser wallet") return false;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+  const list = connectors.filter((c) => {
+    const key = labelFor(c).toLowerCase();
+    if (key === "injected" || key === "browser wallet") return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   return (
     <div
