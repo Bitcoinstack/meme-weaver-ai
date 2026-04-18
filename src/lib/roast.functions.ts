@@ -83,5 +83,7 @@ export const roastWallet = createServerFn({ method: "POST" })
       degenScore: stats.degenScore,
       stats,
       panels,
+      recentTxs: stats.recentTxs,
+      explorerBase: stats.explorerBase,
     };
   });
