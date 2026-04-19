@@ -1,5 +1,3 @@
-import { motion } from "framer-motion";
-
 const STEPS = [
   {
     n: "01",
@@ -26,28 +24,24 @@ const STEPS = [
 
 export function HowItWorks() {
   return (
-    <section id="how" className="bg-cream border-b-4 border-ink py-20 md:py-28">
+    <section id="how" className="border-b-4 border-ink bg-cream py-20 md:py-28">
       <div className="mx-auto max-w-7xl px-4 md:px-8">
-        <h2 className="font-display text-5xl md:text-7xl text-ink text-center mb-4">
+        <h2 className="mb-4 text-center font-display text-5xl text-ink md:text-7xl">
           HOW IT WORKS
         </h2>
-        <p className="text-center font-sans text-lg text-ink/70 mb-14 max-w-xl mx-auto">
+        <p className="mx-auto mb-14 max-w-xl text-center font-sans text-lg text-ink/70">
           Three steps. Zero effort. Maximum embarrassment.
         </p>
-        <div className="grid md:grid-cols-3 gap-8">
-          {STEPS.map((s, i) => (
-            <motion.div
+        <div className="grid gap-8 md:grid-cols-3">
+          {STEPS.map((s) => (
+            <div
               key={s.n}
-              initial={{ opacity: 0, y: 40 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.15, duration: 0.5 }}
-              className={`border-4 border-ink ${s.bg} p-7 shadow-pop-lg ${s.rotate} hover:rotate-0 transition-transform`}
+              className={`border-4 border-ink ${s.bg} ${s.rotate} p-7 shadow-pop-lg transition-transform hover:rotate-0`}
             >
-              <div className="font-display text-6xl mb-3 opacity-90">{s.n}</div>
-              <h3 className="font-display text-3xl mb-3">{s.title}</h3>
-              <p className="font-sans font-medium text-base leading-relaxed">{s.body}</p>
-            </motion.div>
+              <div className="mb-3 font-display text-6xl opacity-90">{s.n}</div>
+              <h3 className="mb-3 font-display text-3xl">{s.title}</h3>
+              <p className="font-sans text-base font-medium leading-relaxed">{s.body}</p>
+            </div>
           ))}
         </div>
       </div>
