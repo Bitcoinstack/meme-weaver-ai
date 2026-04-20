@@ -1,79 +1,30 @@
-// Server-only helpers for wallet analysis + AI comic generation.
-// Never import this from client code.
+// Supabase Edge Function: roast-wallet
+// Mirrors the logic of src/lib/wallet.server.ts + roast.functions.ts so the
+// wallet scan works identically on Lovable preview and on Vercel without
+// requiring a server runtime on the frontend host.
+
+// deno-lint-ignore-file no-explicit-any
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 const ETHERSCAN_V2 = "https://api.etherscan.io/v2/api";
 const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
-// Etherscan v2 unified API — one key works across all chains, free tier.
-export const SUPPORTED_CHAINS = {
+const SUPPORTED_CHAINS: Record<number, { name: string; symbol: string; explorer: string }> = {
   1: { name: "Ethereum", symbol: "ETH", explorer: "etherscan.io" },
   56: { name: "BNB Chain", symbol: "BNB", explorer: "bscscan.com" },
   137: { name: "Polygon", symbol: "MATIC", explorer: "polygonscan.com" },
   42161: { name: "Arbitrum", symbol: "ETH", explorer: "arbiscan.io" },
-} as const;
-
-export type ChainId = keyof typeof SUPPORTED_CHAINS;
-
-export type RecentTx = {
-  hash: string;
-  date: string; // ISO date YYYY-MM-DD
-  time: string; // HH:MM UTC
-  type: "send" | "receive" | "contract" | "swap" | "mint" | "failed";
-  counterparty: string; // truncated 0x..
-  token: string | null; // symbol if token tx
-  valueLabel: string; // human label e.g. "0.42 ETH" or "USDC" or "NFT"
 };
 
-export type WalletStats = {
-  address: string;
-  chainId: number;
-  chainName: string;
-  explorerBase: string; // e.g. https://etherscan.io
-  totalTxs: number;
-  walletAgeDays: number;
-  uniqueTokens: number;
-  topTokens: string[];
-  biggestSwapToken: string | null;
-  totalSwaps: number;
-  totalNftMints: number;
-  contractsInteracted: number;
-  failedTxRatio: number;
-  firstTxDate: string | null;
-  lastTxDate: string | null;
-  nightTradeRatio: number; // 0..1 fraction of txs between 0-5 UTC
-  weekendRatio: number;
-  degenScore: number; // 0..100
-  vibeHints: string[]; // human-readable signals to feed the AI
-  recentTxs: RecentTx[]; // last 25 most recent txs
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-type EvmTx = {
-  timeStamp: string;
-  hash: string;
-  from: string;
-  to: string;
-  value: string;
-  isError: string;
-  contractAddress?: string;
-  input?: string;
-};
-
-type TokenTx = {
-  timeStamp: string;
-  hash: string;
-  from: string;
-  to: string;
-  value: string;
-  tokenSymbol: string;
-  tokenName: string;
-  contractAddress: string;
-};
-
-async function explorerFetch<T>(
-  chainId: number,
-  params: Record<string, string>,
-): Promise<T> {
-  const apiKey = process.env.BSCSCAN_API_KEY; // works as Etherscan v2 unified key
+async function explorerFetch<T>(chainId: number, params: Record<string, string>): Promise<T> {
+  const apiKey = Deno.env.get("BSCSCAN_API_KEY");
   if (!apiKey) throw new Error("Explorer API key not configured");
   const qs = new URLSearchParams({
     chainid: String(chainId),
@@ -82,52 +33,31 @@ async function explorerFetch<T>(
   }).toString();
   const res = await fetch(`${ETHERSCAN_V2}?${qs}`);
   if (!res.ok) throw new Error(`Explorer ${res.status}`);
-  const json = (await res.json()) as { status: string; message: string; result: T };
-  if (json.status !== "1" && !Array.isArray(json.result)) {
-    return [] as unknown as T;
-  }
-  return json.result;
+  const json = await res.json();
+  if (json.status !== "1" && !Array.isArray(json.result)) return [] as unknown as T;
+  return json.result as T;
 }
 
-export async function analyzeWallet(
-  address: string,
-  chainId: number,
-): Promise<WalletStats> {
+async function analyzeWallet(address: string, chainId: number) {
   const lower = address.toLowerCase();
-  const chainMeta = SUPPORTED_CHAINS[chainId as ChainId];
+  const chainMeta = SUPPORTED_CHAINS[chainId];
   if (!chainMeta) throw new Error(`Unsupported chain ${chainId}`);
 
+  const baseParams = (action: string, offset: string) => ({
+    module: "account",
+    action,
+    address: lower,
+    startblock: "0",
+    endblock: "99999999",
+    page: "1",
+    offset,
+    sort: "asc",
+  });
+
   const [txs, tokenTxs, nftTxs] = await Promise.all([
-    explorerFetch<EvmTx[]>(chainId, {
-      module: "account",
-      action: "txlist",
-      address: lower,
-      startblock: "0",
-      endblock: "99999999",
-      page: "1",
-      offset: "1000",
-      sort: "asc",
-    }),
-    explorerFetch<TokenTx[]>(chainId, {
-      module: "account",
-      action: "tokentx",
-      address: lower,
-      startblock: "0",
-      endblock: "99999999",
-      page: "1",
-      offset: "1000",
-      sort: "asc",
-    }),
-    explorerFetch<TokenTx[]>(chainId, {
-      module: "account",
-      action: "tokennfttx",
-      address: lower,
-      startblock: "0",
-      endblock: "99999999",
-      page: "1",
-      offset: "200",
-      sort: "asc",
-    }),
+    explorerFetch<any[]>(chainId, baseParams("txlist", "1000")),
+    explorerFetch<any[]>(chainId, baseParams("tokentx", "1000")),
+    explorerFetch<any[]>(chainId, baseParams("tokennfttx", "200")),
   ]);
 
   const txArr = Array.isArray(txs) ? txs : [];
@@ -136,14 +66,11 @@ export async function analyzeWallet(
 
   const totalTxs = txArr.length;
   const firstTs = txArr[0] ? Number(txArr[0].timeStamp) * 1000 : null;
-  const lastTs = txArr[txArr.length - 1]
-    ? Number(txArr[txArr.length - 1].timeStamp) * 1000
-    : null;
+  const lastTs = txArr.at(-1) ? Number(txArr.at(-1).timeStamp) * 1000 : null;
   const walletAgeDays = firstTs
     ? Math.max(1, Math.floor((Date.now() - firstTs) / 86_400_000))
     : 0;
 
-  // Token stats
   const tokenCounts = new Map<string, number>();
   for (const t of tokArr) {
     const sym = (t.tokenSymbol || "UNKNOWN").slice(0, 12);
@@ -155,12 +82,10 @@ export async function analyzeWallet(
   const biggestSwapToken = sortedTokens[0]?.[0] ?? null;
   const totalSwaps = tokArr.length;
 
-  // NFT mints (received from 0x0)
   const totalNftMints = nftArr.filter(
     (n) => n.from === "0x0000000000000000000000000000000000000000",
   ).length;
 
-  // Contracts interacted with (unique `to` addresses for txs with input data)
   const contractSet = new Set<string>();
   let failed = 0;
   let nightTrades = 0;
@@ -179,7 +104,6 @@ export async function analyzeWallet(
   const weekendRatio = totalTxs > 0 ? weekendTrades / totalTxs : 0;
   const contractsInteracted = contractSet.size;
 
-  // Degen score (0-100): activity + diversity + chaos signals
   const activityScore = Math.min(35, Math.log10(totalTxs + 1) * 10);
   const diversityScore = Math.min(25, uniqueTokens * 1.2);
   const nightScore = nightTradeRatio * 20;
@@ -189,7 +113,6 @@ export async function analyzeWallet(
     Math.min(100, activityScore + diversityScore + nightScore + failScore + nftScore),
   );
 
-  // Build vibe hints for the AI
   const hints: string[] = [];
   if (totalTxs < 10) hints.push("brand new wallet, baby onchain energy");
   else if (totalTxs > 500) hints.push("seasoned veteran, lots of history");
@@ -201,16 +124,13 @@ export async function analyzeWallet(
   if (walletAgeDays > 1500) hints.push("OG since 2021 or earlier");
   if (weekendRatio > 0.4) hints.push("weekend warrior trader");
 
-  // Build recent tx feed (last 25, newest first). Combine native + token + nft.
   const trunc = (a: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—");
-  type FeedItem = RecentTx & { ts: number };
-  const feed: FeedItem[] = [];
-
+  const feed: any[] = [];
   for (const t of txArr) {
     const ts = Number(t.timeStamp) * 1000;
     const d = new Date(ts);
     const isContract = t.input && t.input !== "0x";
-    let type: RecentTx["type"];
+    let type: string;
     if (t.isError === "1") type = "failed";
     else if (isContract) type = "contract";
     else if (t.from?.toLowerCase() === lower) type = "send";
@@ -257,7 +177,7 @@ export async function analyzeWallet(
     });
   }
   const seen = new Set<string>();
-  const recentTxs: RecentTx[] = feed
+  const recentTxs = feed
     .sort((a, b) => b.ts - a.ts)
     .filter((f) => {
       if (seen.has(f.hash)) return false;
@@ -291,54 +211,35 @@ export async function analyzeWallet(
   };
 }
 
-type NarrationPanel = {
-  title: string;
-  caption: string;
-  character: string; // describes the character for THIS panel
-  imagePrompt: string;
-  sticker?: string;
-};
-
-type Narration = {
-  vibe: "roast" | "wholesome" | "degen" | "mixed";
-  verdict: string;
-  panelCount: number;
-  panels: NarrationPanel[];
-};
-
-export async function generateNarration(stats: WalletStats): Promise<Narration> {
-  const apiKey = process.env.LOVABLE_API_KEY;
+async function generateNarration(stats: any) {
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
   if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
 
   const sys = `You are Memco, a brutally funny AI that turns ${stats.chainName} wallet history into a meme comic strip.
 
 TONE: auto-pick based on data:
-- degenScore > 70 OR nightTradeRatio > 0.3 → "degen" (chaotic crypto slang, "ser", "ngmi", "wagmi")
-- totalTxs < 20 → "wholesome" (gentle, encouraging, baby energy)
-- mid-range with mixed signals → "mixed" (alternates roast/wholesome/degen)
-- otherwise → "roast" (savage but playful, like a crypto twitter reply guy)
+- degenScore > 70 OR nightTradeRatio > 0.3 → "degen"
+- totalTxs < 20 → "wholesome"
+- mid-range with mixed signals → "mixed"
+- otherwise → "roast"
 Be specific about tokens and numbers from the data.
 
-PANEL COUNT: choose 4-8 panels based on richness of data:
-- < 30 txs → 4 panels (short story)
+PANEL COUNT: 4-8 panels based on richness:
+- < 30 txs → 4 panels
 - 30-200 txs → 5-6 panels
-- > 200 txs → 7-8 panels (rich history deserves more)
+- > 200 txs → 7-8 panels
 
-CHARACTERS: each panel has a DIFFERENT character that fits the moment. Pick imaginatively from:
-cartoon penguin, frog (pepe-vibe), dog, cat, raccoon, robot, alien, ghost, monkey, bear, bull, chad-guy, wojak, anon-with-hoodie, viking, samurai, astronaut, clown, baby chick, rocket. Mix them up — different character per panel keeps it fresh.
+CHARACTERS: each panel a DIFFERENT character (penguin, frog, dog, cat, raccoon, robot, alien, ghost, monkey, bear, bull, chad-guy, wojak, anon-with-hoodie, viking, samurai, astronaut, clown, baby chick, rocket).
 
-IMAGE PROMPT RULES: each prompt MUST start with "Comic book panel, thick black outlines, halftone shading, cel-shaded cartoon, cream background." Then describe the character + scene + emotion. Keep prompts under 60 words. Do NOT mention real token contract addresses. Use $SYMBOL format for tokens.
+IMAGE PROMPT: must start with "Comic book panel, thick black outlines, halftone shading, cel-shaded cartoon, cream background." Then describe character + scene + emotion. Under 60 words. Use $SYMBOL for tokens.
 
-STICKER: short emoji+word like "REKT 💀", "WAGMI 🚀", "GM ☀️", "PUMP 📈", "RUG 🪤", "BASED 🗿".
-
+STICKER: short emoji+word like "REKT 💀", "WAGMI 🚀".
 VERDICT: one closing line under 22 words.`;
 
   const user = `Wallet stats:
 ${JSON.stringify(stats, null, 2)}
 
-Generate a meme comic narrating this wallet's onchain story. Each panel: title, 1-sentence caption (max 18 words), character description for that panel, imagePrompt for the artist, sticker.
-
-Return via the create_comic tool.`;
+Generate a meme comic. Each panel: title, 1-sentence caption (max 18 words), character, imagePrompt, sticker. Return via create_comic tool.`;
 
   const tool = {
     type: "function",
@@ -349,7 +250,7 @@ Return via the create_comic tool.`;
         type: "object",
         properties: {
           vibe: { type: "string", enum: ["roast", "wholesome", "degen", "mixed"] },
-          verdict: { type: "string", description: "One closing line under 22 words." },
+          verdict: { type: "string" },
           panelCount: { type: "integer", minimum: 4, maximum: 8 },
           panels: {
             type: "array",
@@ -360,10 +261,7 @@ Return via the create_comic tool.`;
               properties: {
                 title: { type: "string" },
                 caption: { type: "string" },
-                character: {
-                  type: "string",
-                  description: "Short description of the character in this panel, e.g. 'cartoon penguin in lab coat' or 'frog wojak crying'",
-                },
+                character: { type: "string" },
                 imagePrompt: { type: "string" },
                 sticker: { type: "string" },
               },
@@ -380,10 +278,7 @@ Return via the create_comic tool.`;
 
   const res = await fetch(AI_GATEWAY, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "google/gemini-2.5-flash",
       messages: [
@@ -405,20 +300,16 @@ Return via the create_comic tool.`;
   const data = await res.json();
   const call = data?.choices?.[0]?.message?.tool_calls?.[0];
   if (!call) throw new Error("AI did not return a comic");
-  const args = JSON.parse(call.function.arguments);
-  return args as Narration;
+  return JSON.parse(call.function.arguments);
 }
 
-export async function generatePanelImage(prompt: string): Promise<string> {
-  const apiKey = process.env.LOVABLE_API_KEY;
+async function generatePanelImage(prompt: string): Promise<string> {
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
   if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
 
   const res = await fetch(AI_GATEWAY, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "google/gemini-2.5-flash-image",
       messages: [{ role: "user", content: prompt }],
@@ -427,14 +318,119 @@ export async function generatePanelImage(prompt: string): Promise<string> {
   });
 
   if (!res.ok) {
-    if (res.status === 429) throw new Error("Image gen rate limited — try again.");
+    if (res.status === 429) throw new Error("Image gen rate limited.");
     if (res.status === 402) throw new Error("Credits exhausted.");
     throw new Error(`Image gen ${res.status}`);
   }
 
   const data = await res.json();
-  const images = data?.choices?.[0]?.message?.images;
-  const url = images?.[0]?.image_url?.url;
+  const url = data?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
   if (!url) throw new Error("No image returned");
   return url;
 }
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ ok: false, error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const body = await req.json();
+    const address = String(body?.address || "").toLowerCase();
+    const chainId = Number(body?.chainId || 1);
+
+    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      return new Response(JSON.stringify({ ok: false, error: "Invalid wallet address" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (!(chainId in SUPPORTED_CHAINS)) {
+      return new Response(JSON.stringify({ ok: false, error: "Unsupported chain" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const stats = await analyzeWallet(address, chainId);
+
+    if (stats.totalTxs === 0) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: `This wallet has zero ${stats.chainName} activity. Try another chain or a wallet that's been onchain.`,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const narration = await generateNarration(stats);
+
+    const panelImages = await Promise.all(
+      narration.panels.map((p: any) =>
+        generatePanelImage(p.imagePrompt).catch((e: any) => {
+          console.error("Panel image failed:", e?.message || e);
+          return "";
+        }),
+      ),
+    );
+
+    const panels = narration.panels.map((p: any, i: number) => ({
+      title: p.title,
+      caption: p.caption,
+      character: p.character,
+      sticker: p.sticker ?? null,
+      imageUrl: panelImages[i],
+    }));
+
+    let comicId: string | null = null;
+    try {
+      const supabase = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      const { data: row } = await supabase
+        .from("comics")
+        .insert([
+          {
+            wallet_address: address,
+            vibe: narration.vibe,
+            degen_score: stats.degenScore,
+            verdict: narration.verdict,
+            panels: panels as any,
+            stats: stats as any,
+          },
+        ])
+        .select("id")
+        .single();
+      comicId = row?.id ?? null;
+    } catch (e) {
+      console.error("Failed to persist comic", e);
+    }
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        comicId,
+        vibe: narration.vibe,
+        verdict: narration.verdict,
+        degenScore: stats.degenScore,
+        stats,
+        panels,
+        recentTxs: stats.recentTxs,
+        explorerBase: stats.explorerBase,
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  } catch (e: any) {
+    console.error("roast-wallet error:", e?.message || e);
+    return new Response(
+      JSON.stringify({ ok: false, error: e?.message || "Internal error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+});

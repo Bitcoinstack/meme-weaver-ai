@@ -6,7 +6,7 @@ import { useAccount } from "wagmi";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toPng } from "html-to-image";
-import { roastWallet } from "@/lib/roast.functions";
+import { supabase } from "@/integrations/supabase/client";
 import penguin from "@/assets/penguin-hero.png";
 
 export const Route = createFileRoute("/roast")({
@@ -106,14 +106,20 @@ function RoastPage() {
     setError(null);
     setComic(null);
 
-    roastWallet({ data: { address: addr, chainId: cId } })
-      .then((res) => {
-        if (!res.ok) {
-          setError(res.error);
+    supabase.functions
+      .invoke("roast-wallet", { body: { address: addr, chainId: cId } })
+      .then(({ data, error: invokeErr }) => {
+        if (invokeErr) {
+          setError(invokeErr.message || "Scan failed");
           setStatus("error");
           return;
         }
-        setComic(res as ComicResult);
+        if (!data?.ok) {
+          setError(data?.error || "Scan failed");
+          setStatus("error");
+          return;
+        }
+        setComic(data as ComicResult);
         setStatus("done");
       })
       .catch((e) => {
